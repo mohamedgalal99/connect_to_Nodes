@@ -1,0 +1,79 @@
+#!/bin/bash
+
+[[ $1 ]] || { printf '[-] Error: provide me with enviroment name \n'; exit 1;}
+
+
+env=$1
+node_type1="cpu"
+node_type2="stor"
+new=1
+
+[[ -d /opt/code/git/openvcloudEnvironments/${env} ]] || { printf "[-] Error: can\'t find this env \n" && exit 1; }
+cd /opt/code/git/openvcloudEnvironments/${env}
+
+nodes=()
+nodes=(`ls services/ | grep cpu | xargs -n 1`)
+length=${#nodes[@]}
+
+nodes_stor=()
+nodes_stor=(`ls services/ | grep stor | xargs -n 1`)
+length_stor=${#nodes_stor[@]}
+
+pub_ip=`grep 'instance.remote.address' services/${nodes[$node]}/service.hrd | awk '{print $3}'`
+pub_ip=${pub_ip:1:-1}
+#echo ${pub_ip}
+
+remote_ip=`grep 'instance.remote.bind' services/${nodes[$node]}/service.hrd | awk '{print $3}'`
+remote_ip=${remote_ip:1:-1}
+#echo ${remote_ip}
+function conn
+{
+  len=${1}       # lenght or length_stor
+  target=${2}    # cpu or stor
+  waiting=0
+
+  for (( node = 0; node < ${len}; node++ )); do
+    #statements
+    if [[ ${target} == 'cpu' ]]; then
+      port=`grep 'instance.remote.port' services/${nodes[$node]}/service.hrd | awk '{print $3}'`
+      echo "[info] ${nodes[$node]}"
+      #echo ${waiting}
+      if [[ ${waiting} -eq 5 ]]; then
+        #statements
+        sleep 1
+        waiting=0
+      fi
+    elif [[ ${target} == 'stor' ]]; then
+      break
+      port=`grep 'instance.remote.port' services/${nodes_stor[$node]}/service.hrd | awk '{print $3}'`
+      echo "[info] ${nodes_stor[$node]}"
+    fi
+    port=${port:1:-1}
+  #  echo ${port}
+    if [[ ${new} = 1 ]]; then
+      #statements
+      tmux new-session -d -s $env 'ssh -t -i /opt/code/git/openvcloudEnvironments/"'$env'"/keys/git_root root@"'$pub_ip'" -t ssh -i /opt/code/github/gig-projects/"'$env'"/keys/git_root -p "'$port'" "'$remote_ip'"'
+      tmux rename-window -t :0 ${node_type1}
+      new=0
+    else
+      tmux split-window -h 'ssh -t -i /opt/code/git/openvcloudEnvironments/"'$env'"/keys/git_root root@"'$pub_ip'" -t ssh -i /opt/code/github/gig-projects/"'$env'"/keys/git_root -p "'$port'" "'$remote_ip'"'
+      tmux select-layout -t $env:$node_type1 tiled                                  #layouts: even-horizontal, even-vertical, main-horizontal, main-vertical, or tiled.
+    fi
+    $((waiting++))
+  done
+}
+
+for i in cpu stor
+do
+  if [[ ${i} == 'cpu' ]]; then
+    [[ $length == 0 ]] && { printf "[-] No CPU nodes available"; break; }
+    conn ${length} ${i}
+  elif [[ ${i} == 'stor' ]]; then
+    [[ $length_stor == 0 ]] && { printf "[-] No STOR nodes available"; break; }
+    conn ${length_stor} ${i}
+  fi
+done
+
+tmux set-window-option -t ${env}:${node_type1} synchronize-panes on                       # enable pane sync
+tmux select-pane -t :.+                                                                  # move to next pane, which is first pane :)
+tmux attach -t ${env}:${node_type1}
